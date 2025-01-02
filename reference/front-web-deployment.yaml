@@ -1,0 +1,94 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${Region}-web
+  namespace: prd-XXX
+spec:
+  replicas: 2
+  strategy: 
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: ${Region}-web
+  template:
+    metadata: 
+      labels:
+        app: ${Region}-web
+    spec:
+      volumes:
+      - name: nfs
+        nfs:
+          server: xxx.xxx.xxx.xxx #IP
+          path: # nas path /nxxxxx_pXXX
+      containers:
+      - name: ${Region}-web
+        image: fyv*********.ntruss.com/${Region}-${GIT_PROJECT}:${BUILD_NUMBER}
+        imagePullPolicy: Always
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "100Mi"
+          limits:
+            cpu: "100m"
+            memory: "100Mi"
+        
+        startupProbe:
+          httpGet:
+            path: /css/yar.css
+            port: 80
+          successThreshold: 1
+          failureThreshold: 2
+          timeoutSeconds: 2
+          periodSeconds: 2
+          initialDelaySeconds: 3
+        
+        readinessProbe:
+          httpGet:
+            path: /css/yar.css
+            port: 80
+          successThreshold: 1
+          failureThreshold: 2
+          timeoutSeconds: 2
+          periodSeconds: 2
+          initialDelaySeconds: 3
+        
+        livenessProbe:
+          httpGet:
+            path: /css/yar.css
+            port: 80
+          successThreshold: 1
+          failureThreshold: 2
+          timeoutSeconds: 2
+          periodSeconds: 2
+          initialDelaySeconds: 5
+
+        lifecycle:
+          preStop:
+            exec:
+              command: ["/bin/sh", "-c", "nginx -s quit"]
+        volumeMounts:
+        - mountPath: /pXXX
+          name: nfs
+      
+      terminationGracePeriodSeconds: 10
+      imagePullSecrets:
+      - name: prd-registry
+
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${Region}-was
+  namespace: prd-XXX
+spec:
+  type: nodePort
+  selector:
+    app: ${Region}-web
+  ports:
+  - port: 80
+    nodePort: ${node_Port_Num}
+    targetPort: 80
