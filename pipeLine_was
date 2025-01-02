@@ -1,0 +1,62 @@
+node {
+	def GIT_URL            = 'http://~~~~.git'
+	def GIT_PROJECT        = GIT_URL.tokenize('/').last().replaceAll('\\.git$', '')
+	def CREDENTIALS_ID     = 'XXXGroup'
+	def DOCKERFILE_PATH    = '/data/jenkins-XXX/workspace/XXX-ENV/PRD-XXX-FRONT-WAS'
+	def DOCKER_FILE        = "${GIT_PROJECT}-was.Dockerfile"
+	def DEPLOY_FILE        = "${GIT_PROJECT}-was-deployment.yaml"
+	def Array							 = ['XXX-was']
+	
+	stage('RUN Another PipeLine) {
+		build job: 'XXX-ENV', parameters: [
+				[$class: 'ExtendedChoiceParameterValue', name: 'SERVICE', value: 'PRD-XXX-FRONT-WAS'], 
+				[$class: 'ExtendedChoiceParameterValue', name: 'clean_ws', value: 'Y']
+		], propagate: false
+	}
+	
+	stage('Clean Workspace') {
+		if (env.clean_ws == 'Y') {
+			cleanWs()
+			dir("${workspace}@tmp") {
+				deleteDir()
+			}
+		}
+	}
+	
+	stage('Checkout Project') {
+		git branch: 'main', credentailsId: CREDENTIALS_ID, url: GIT_URL
+	}
+	
+	stage('Gradle build') {
+		sh 'chmod +x ./gradlew'
+		sh './gradlew build'
+		archiveArtifacts artifacts: 'build/libs/*.jar', fingerprint: true
+	}
+	
+	for (int i = 0; i < Array.size(); i++) {
+		Region = Array[i]
+		stage(Region + ' Docker Image Build') {
+			app = docker.build("***ntruss.com/${Region}-${GIT_PROJECT}". "-f ${DOCKERFILE_PATH}/${DOCKER_FILE} .")
+		}
+	}
+	
+	stage(Region + ' Docker Image Push') {
+		retry(3) {
+			try {
+				docker.withRegistry('http:****ntruss.com/', 'docker-credentail') {
+					app.push("$BUILD_NUMBER")
+				}
+			} catch (Exception e) {
+				echo 'Docker push failed. Retrying...'
+				throw e
+			}
+		}
+	}
+	
+	stage(Region + ' K8S Deploy') {
+		withEnv(["GIT_PROJECT=$GIT_PROJECT", "Region=$Region"] {
+			sh "envsubst < ${DOCKERFILE_PATH}/${DEPLOY_FILE} | kubectl apply -f -"
+		}
+	}
+
+}
