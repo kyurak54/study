@@ -1,0 +1,69 @@
+node {
+    def GIT_URL         = 'http://~~~.git'
+    def GIT_PROJECT     = GIT_URL.tokenize('/').last().replaceAll('\\.git$', '')
+    def CREDENTIALS_ID  = 'XXXGroup'
+    def DOCKERFILE_PATH = '/data/jenkins-XXX/workspace/XXX-ENV/PRD-XXX-FRONT-WEB'
+    def DOCKER_FILE     = "${GIT_PROJECT}-web.Dockerfile"
+    def DEPLOY_FILE     = "${GIT_PROJECT}-web-deploymen.yaml"
+
+    def Array           = [['xxx-was', 'domain.co.kr', 'hmpgId']]
+    def Region
+    def Domain
+    def Param
+    def Node_Port_num   = 31100
+
+    stage('xxx-ENV Pipeline') {
+        build job: 'XXX-ENV', parameters: [
+            [$class: 'ExtendedChoiceParameterValue', name: 'Service', value: 'PRD-XXX-FRONT-WEB'],
+            [$class: 'ExtendedChoiceParameterValue', name: 'clean_ws', value: 'Y']
+        ], propagate: false
+    }
+
+    stage('Clean Workspace') {
+        if (env.clean_ws == 'Y') {
+            cleanWs()
+            dir("${workspace}@tmp") {
+                deleteDir()
+            }
+        }
+    }
+
+    stage('Checkout Project') {
+        git branch: 'main', credentailsId: CREDENTIALS_ID, url: GIT_URL
+    }
+
+    for (int i = 0; i < Array.size(); i++) {
+        Region          = Array[i][0]
+        Node_Port_num+  = i*10
+        stage(Region + ' Docker Image Build') {
+            sh "cp ${DOCKERFILE_PATH}/nginx.conf ."
+            sh "sed -i 's/Region-was.prd-xxx-svc.cluster.local/${Region}-was.prd-xxx-svc.cluster.local/' nginx.conf"
+            for (int j = 1; j < Array[i].size(); j+=2) {
+                Domain = Array[i][j]
+                Param  = Array[i][j+1]
+                sh "sed -i 's/ map \$host \$sub_domains {/ map \$host \$sub_domains {\\\n\\\t${Domain}\\\t${Param};/' nginx.conf"
+            }
+            app = docker.build("fyv****.ntruss.com/${Region}-${GIT_PROEJECT}", "-f ${DOCKERFILE_PATH}/${DOCKER_FILE} .")
+        }
+
+        stage(Region + ' Docker Image Push') {
+            retry(3) {
+                try {
+                    docker.withRegistry('****ntruss.com', 'docker-credential') {
+                        app.push("$BUILD_NUMBER")
+                    }
+                } catch (Exception e) {
+                    echo 'Docker push failed. Retrying...'
+                    throw e
+                }
+            }
+        }
+
+        stage (Region + ' K8S Deploy') {
+            withEnv(["GIT_PROJECT=$GIT_PROJECT", "Region=$Region", "Node_Port_Num=$Node_Port_num"]) {
+                sh "envsubst < ${DOCKERFILE_PATH}/${DEPLOY_FILE} | kubectl apply -f -"
+            }
+        }
+    }
+
+}
