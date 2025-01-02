@@ -1,0 +1,91 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${Region}-was
+  namespace: prd-XXX
+spec:
+  replicas: 2
+  strategy: 
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: ${Region}-was
+  template:
+    metadata: 
+      labels:
+        app: ${Region}-was
+    spec:
+      volumes:
+      - name: nfs
+        nfs:
+          server: xxx.xxx.xxx.xxx #IP
+          path: # nas path /nxxxxx_pXXX
+      containers:
+      - name: ${Region}-was
+        image: fyv*********.ntruss.com/${Region}-${GIT_PROJECT}:${BUILD_NUMBER}
+        imagePullPolicy: Always
+        resources:
+          requests:
+            cpu: "1500m"
+          limits:
+            cpu: "1500m"
+        
+        startupProbe:
+          httpGet:
+            path: /
+            port: 8000
+          successThreshold: 1
+          failureThreshold: 2
+          timeoutSeconds: 2
+          periodSeconds: 2
+          initialDelaySeconds: 50
+        
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 8080
+          successThreshold: 1
+          failureThreshold: 2
+          timeoutSeconds: 2
+          periodSeconds: 2
+          initialDelaySeconds: 3
+        
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 8080
+          successThreshold: 1
+          failureThreshold: 2
+          timeoutSeconds: 2
+          periodSeconds: 2
+          initialDelaySeconds: 5
+        lifecycle:
+          preStop:
+            exec:
+              command: ["sh", "-c", "sleep 15"]
+        volumeMounts:
+        - mountPath: /pXXX
+          name: nfs
+      
+      terminationGracePeriodSeconds: 15
+      imagePullSecrets:
+      - name: prd-registry
+
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: ${Region}-was
+  name: ${Region}-was
+  namespace: prd-XXX
+spec:
+  selector:
+    app: ${Region}-was
+  ports:
+  - targetPort: 8080
+    port: 8080
